@@ -18,6 +18,7 @@
 4. 🤸 [Quick Start](#quick-start)
 5. 🕸️ [Snippets](#snippets)
 6. 🏗️ [System Design](#system-design)
+7. 🧠 [Q&A Reference](#qa-reference)
 
 ## <a name="introduction">🤖 Introduction</a>
 
@@ -2775,4 +2776,25 @@ Image-real/
 | **Stripe** | Payments | PCI-compliant payment processing with webhook events for credit fulfillment |
 | **TailwindCSS + Shadcn** | UI | Utility-first styling with accessible, composable components |
 | **Zod + React Hook Form** | Form validation | Type-safe schema validation with performant, uncontrolled forms |
+
+---
+
+## 🧠 <a name="qa-reference">Q&A Reference</a>
+
+A full set of **100 questions and answers** covering the project's tech stack, architecture, code patterns, security, and deployment is available in [`QnA.md`](./QnA.md).
+
+| # | Category | Questions |
+|---|----------|-----------|
+| 1 | 📦 Project Overview | Q1 – Q5 |
+| 2 | ⚙️ Tech Stack | Q6 – Q20 |
+| 3 | 🏗️ Architecture | Q21 – Q30 |
+| 4 | 🗄️ Database (MongoDB + Mongoose) | Q31 – Q40 |
+| 5 | 🔄 Data Flow | Q41 – Q50 |
+| 6 | 🤖 AI Transformations (Cloudinary) | Q51 – Q60 |
+| 7 | 🔐 Security | Q61 – Q70 |
+| 8 | 🧩 Components & UI | Q71 – Q80 |
+| 9 | 💳 Credits System & Routes | Q81 – Q92 |
+| 10 | 🔧 Configuration & Deployment | Q93 – Q100 |
+
+> 📄 Full answers available in [QnA.md](./QnA.md)
 
