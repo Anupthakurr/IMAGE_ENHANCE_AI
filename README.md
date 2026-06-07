@@ -2544,4 +2544,284 @@ And if you're hungry for more than just a course and want to understand how we l
 <img src="https://github.com/sujatagunale/EasyRead/assets/151519281/fed352ad-f27b-400d-9b8f-c7fe628acb84" alt="Project Banner">
 </a>
 
-#
+---
+
+## 🏗️ System Design
+
+This section provides a comprehensive overview of the architecture, data flow, and key design decisions behind **IMAGE_ENHANCE_AI** — an AI-powered SaaS platform for image transformation.
+
+---
+
+### 📐 High-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          CLIENT (Browser)                               │
+│              Next.js 14 App Router  ·  React 18  ·  TailwindCSS         │
+└────────────────────────────┬────────────────────────────────────────────┘
+                             │  HTTPS
+                             ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        NEXT.JS SERVER (Edge/Node)                       │
+│                                                                         │
+│  ┌─────────────────┐   ┌──────────────────┐   ┌──────────────────────┐ │
+│  │  App Router     │   │  Server Actions  │   │  API Route Handlers  │ │
+│  │  /app/(root)    │   │  image.actions   │   │  /api/webhooks/clerk │ │
+│  │  /app/(auth)    │   │  user.actions    │   │  /api/webhooks/stripe│ │
+│  │  /transformations│  │  transaction.    │   └──────────────────────┘ │
+│  └─────────────────┘   │  action          │                            │
+│                         └──────────────────┘                           │
+└───────┬─────────────────────────┬──────────────────────────────────────┘
+        │                         │
+        ▼                         ▼
+┌───────────────┐       ┌─────────────────────────────────────────────┐
+│  Clerk Auth   │       │              External Services               │
+│  (JWT + RBAC) │       │                                             │
+└───────────────┘       │  ┌──────────────┐   ┌────────────────────┐ │
+                        │  │  Cloudinary  │   │    Stripe          │ │
+                        │  │  AI Engine   │   │  Payment Gateway   │ │
+                        │  │  (Transform) │   │  (Credits System)  │ │
+                        │  └──────────────┘   └────────────────────┘ │
+                        │                                             │
+                        │  ┌──────────────────────────────────────┐  │
+                        │  │         MongoDB Atlas                 │  │
+                        │  │  Users · Images · Transactions        │  │
+                        │  └──────────────────────────────────────┘  │
+                        └─────────────────────────────────────────────┘
+```
+
+---
+
+### 🔄 Request Data Flow
+
+#### Image Transformation Flow
+
+```
+User Uploads Image
+      │
+      ▼
+MediaUploader Component
+  (next-cloudinary CldUploadWidget)
+      │
+      ▼
+Cloudinary Storage ──────► Cloudinary Public ID stored in MongoDB
+      │
+      ▼
+User Selects Transformation Type
+  (restore / fill / remove / recolor / removeBackground)
+      │
+      ▼
+TransformationForm (React Hook Form + Zod validation)
+      │
+      ▼
+Server Action: addImage() / updateImage()
+  · Connects to MongoDB via Mongoose
+  · Deducts 1 credit from user balance
+  · Saves transformation config + publicId
+      │
+      ▼
+CldImage Component (next-cloudinary)
+  · Applies Cloudinary AI transformation URL params
+  · Streams transformed result back to browser
+      │
+      ▼
+User sees Before / After preview
+```
+
+#### Payment & Credits Flow
+
+```
+User clicks "Buy Credits"
+      │
+      ▼
+Stripe Checkout Session (server action: createTransaction)
+      │
+      ▼
+Stripe Webhook ──► /api/webhooks/stripe
+  · Verifies Stripe signature (svix)
+  · Calls updateCredits() server action
+  · MongoDB user.creditBalance updated
+      │
+      ▼
+User credit balance refreshed on Profile page
+```
+
+#### Auth Flow
+
+```
+User visits protected route
+      │
+      ▼
+Clerk Middleware (middleware.ts)
+  · Validates JWT session token
+  · Redirects unauthenticated users to /sign-in
+      │
+      ▼
+Clerk Webhook ──► /api/webhooks/clerk
+  · On user.created event: creates MongoDB User document
+  · On user.updated event: syncs profile data
+      │
+      ▼
+clerkId stored on MongoDB User model (used as FK across queries)
+```
+
+---
+
+### 🗄️ Database Schema (MongoDB + Mongoose)
+
+#### User Model
+```typescript
+{
+  clerkId:       String  // Primary external ID from Clerk
+  email:         String  // Unique
+  username:      String  // Unique
+  photo:         String  // Clerk avatar URL
+  firstName:     String
+  lastName:      String
+  planId:        Number  // 1=Free, 2=Pro, 3=Premium
+  creditBalance: Number  // Default: 10
+}
+```
+
+#### Image Model
+```typescript
+{
+  title:             String   // User-defined name
+  transformationType: String  // restore | fill | remove | recolor | removeBackground
+  publicId:          String   // Cloudinary asset ID
+  secureURL:         String   // Original image URL
+  width:             Number
+  height:            Number
+  config:            Object   // Cloudinary transformation config
+  transformationUrl: String   // Transformed image URL
+  aspectRatio:       String   // 1:1 | 3:4 | 9:16
+  color:             String   // Used for recolor
+  prompt:            String   // Used for object remove/recolor
+  author:            ObjectId // Ref → User
+  createdAt:         Date
+  updatedAt:         Date
+}
+```
+
+#### Transaction Model
+```typescript
+{
+  createdAt:  Date
+  stripeId:   String  // Stripe Payment Intent ID
+  amount:     Number  // Amount paid
+  credits:    Number  // Credits purchased
+  plan:       String  // Plan name
+  buyer:      ObjectId // Ref → User
+}
+```
+
+---
+
+### 🛣️ Application Routes
+
+| Route | Access | Description |
+|-------|--------|-------------|
+| `/` | Public | Home – image gallery with search & pagination |
+| `/sign-in` | Public | Clerk sign-in page |
+| `/sign-up` | Public | Clerk sign-up page |
+| `/transformations/add/restore` | Auth | Image restoration |
+| `/transformations/add/fill` | Auth | Generative fill / outpainting |
+| `/transformations/add/remove` | Auth | Object removal |
+| `/transformations/add/recolor` | Auth | Object recoloring |
+| `/transformations/add/removeBackground` | Auth | Background removal |
+| `/transformations/[id]` | Auth | View single transformation |
+| `/profile` | Auth | User profile + credit balance |
+| `/credits` | Auth | Purchase credit plans |
+| `/api/webhooks/clerk` | Webhook | Clerk user sync |
+| `/api/webhooks/stripe` | Webhook | Stripe payment confirmation |
+
+---
+
+### 🤖 AI Transformation Types
+
+| Type | Cloudinary Config | Use Case |
+|------|------------------|----------|
+| **Image Restore** | `restore: true` | Fix old/damaged/noisy images |
+| **Generative Fill** | `fillBackground: true` | AI outpainting to extend canvas |
+| **Object Remove** | `remove: { prompt, removeShadow, multiple }` | Erase objects from scenes |
+| **Object Recolor** | `recolor: { prompt, to, multiple }` | Change color of specific objects |
+| **Background Remove** | `removeBackground: true` | Transparent background extraction |
+
+---
+
+### 💳 Credit System
+
+| Plan | Price | Credits | Support |
+|------|-------|---------|---------|
+| Free | $0 | 20 | Basic |
+| Pro | $40 | 120 | Priority |
+| Premium | $199 | 2000 | Priority + Updates |
+
+- Each transformation costs **1 credit**
+- Credits are deducted via server actions (never client-side)
+- Purchases processed securely through **Stripe** with webhook confirmation
+
+---
+
+### 🔐 Security Design
+
+- **Authentication**: Clerk-managed JWT tokens with middleware route protection
+- **Authorization**: Server Actions verify `clerkId` before any data mutation
+- **Webhooks**: Stripe & Clerk webhooks verified using `svix` signature validation
+- **Environment Variables**: All secrets stored in `.env.local`, never exposed to client
+- **Database**: MongoDB Atlas with Mongoose connection pooling via singleton pattern
+
+---
+
+### 📁 Project Structure
+
+```
+Image-real/
+├── app/
+│   ├── (auth)/              # Sign-in / Sign-up pages (Clerk)
+│   ├── (root)/              # Protected app pages
+│   │   ├── page.tsx         # Home - image gallery
+│   │   ├── profile/         # User profile & credits
+│   │   ├── credits/         # Purchase plans
+│   │   └── transformations/ # All transformation routes
+│   └── api/
+│       └── webhooks/        # Clerk & Stripe webhook handlers
+│
+├── components/
+│   ├── shared/              # Reusable feature components
+│   └── ui/                  # Shadcn base UI components
+│
+├── lib/
+│   ├── actions/             # Next.js Server Actions
+│   │   ├── image.actions.ts
+│   │   ├── user.actions.ts
+│   │   └── transaction.action.ts
+│   ├── database/
+│   │   ├── mongoose.ts      # DB connection singleton
+│   │   └── models/          # Mongoose schemas
+│   └── utils.ts             # Shared utility functions
+│
+├── constants/
+│   └── index.ts             # Nav links, plans, transformation types
+│
+├── types/                   # TypeScript type definitions
+├── public/                  # Static assets & icons
+├── middleware.ts             # Clerk auth middleware
+└── next.config.mjs          # Next.js + Cloudinary config
+```
+
+---
+
+### ⚙️ Tech Stack Rationale
+
+| Technology | Role | Why |
+|-----------|------|-----|
+| **Next.js 14** | Full-stack framework | App Router + Server Actions eliminate need for separate API layer |
+| **TypeScript** | Type safety | Catches bugs at compile time across the entire codebase |
+| **MongoDB + Mongoose** | Database | Flexible schema ideal for variable image transformation configs |
+| **Clerk** | Authentication | Handles user sessions, social login, and webhooks out-of-the-box |
+| **Cloudinary** | AI transformations + storage | Industry-leading image AI with built-in CDN delivery |
+| **Stripe** | Payments | PCI-compliant payment processing with webhook events for credit fulfillment |
+| **TailwindCSS + Shadcn** | UI | Utility-first styling with accessible, composable components |
+| **Zod + React Hook Form** | Form validation | Type-safe schema validation with performant, uncontrolled forms |
+
